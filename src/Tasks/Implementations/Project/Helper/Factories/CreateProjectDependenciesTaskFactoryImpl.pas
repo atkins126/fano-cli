@@ -37,6 +37,17 @@ type
             const textFileCreator : ITextFileCreator;
             const contentModifier : IContentModifier
         ) : ITask;
+
+        function buildDbConfig(
+            const textFileCreator : ITextFileCreator;
+            const contentModifier : IContentModifier
+        ) : ITask;
+
+        function buildSessionConfigProjectTask(
+            const textFileCreator : ITextFileCreator;
+            const contentModifier : IContentModifier
+        ) : ITask;
+
         function buildSessionProjectTask(
             const textFileCreator : ITextFileCreator;
             const contentModifier : IContentModifier
@@ -48,6 +59,12 @@ type
         ) : ITask;
 
         function buildBasicProjectTask(
+            const textFileCreator : ITextFileCreator;
+            const contentModifier : IContentModifier
+        ) : ITask;
+
+        function buildWithCsrfProjectTask(
+            const prjTask : ITask;
             const textFileCreator : ITextFileCreator;
             const contentModifier : IContentModifier
         ) : ITask;
@@ -75,6 +92,8 @@ uses
     CreateAppConfigsTaskImpl,
     CreateSessionJsonAppConfigsTaskImpl,
     CreateSessionIniAppConfigsTaskImpl,
+    CreateDbSessionJsonAppConfigsTaskImpl,
+    CreateDbSessionIniAppConfigsTaskImpl,
     CreateSessionAppConfigsTaskImpl,
     CreateFileSessionDependenciesTaskImpl,
     CompositeSessionTypeTaskImpl,
@@ -91,7 +110,17 @@ uses
     CreateMiddlewareDependenciesTaskImpl,
     CreateNoMiddlewareDependenciesTaskImpl,
     CreateSessionDirTaskImpl,
-    ForceConfigDecoratorTaskImpl;
+    ForceConfigDecoratorTaskImpl,
+    WithDbSessionTaskImpl,
+    NamedCompositeTaskImpl,
+    CompositeDbTypeTaskImpl,
+    MysqlDbSessionContentModifierImpl,
+    PostgresqlDbSessionContentModifierImpl,
+    FirebirdDbSessionContentModifierImpl,
+    SqliteDbSessionContentModifierImpl,
+    WithCsrfTaskImpl,
+    CreateCsrfMiddlewareDependenciesTaskImpl,
+    ForceConfigSessionDecoratorTaskImpl;
 
     function TCreateProjectDependenciesTaskFactory.buildCompilerConfigsTask(
         const textFileCreator : ITextFileCreator;
@@ -107,7 +136,7 @@ uses
             TCreateCompilerConfigsTask.create(textFileCreator, contentModifier),
             aReader,
             aWriter
-        );      
+        );
     end;
 
     function TCreateProjectDependenciesTaskFactory.buildConfigProjectTask(
@@ -130,7 +159,84 @@ uses
                 fileReader
             )
         ]);
+    end;
 
+    function TCreateProjectDependenciesTaskFactory.buildDbConfig(
+        const textFileCreator : ITextFileCreator;
+        const contentModifier : IContentModifier
+    ) : ITask;
+    var taskArr : TNamedTaskArr;
+    begin
+        setLength(taskArr, 4);
+
+        taskArr[0].name := 'mysql';
+        taskArr[0].task := TCreateDbSessionJsonAppConfigsTask.create(
+            textFileCreator,
+            TMysqlDbSessionContentModifier.create(contentModifier),
+            TBasicKeyGenerator.create()
+        );
+
+        taskArr[1].name := 'postgresql';
+        taskArr[1].task := TCreateDbSessionJsonAppConfigsTask.create(
+            textFileCreator,
+            TPostgresqlDbSessionContentModifier.create(contentModifier),
+            TBasicKeyGenerator.create()
+        );
+
+        taskArr[2].name := 'firebird';
+        taskArr[2].task := TCreateDbSessionJsonAppConfigsTask.create(
+            textFileCreator,
+            TFirebirdDbSessionContentModifier.create(contentModifier),
+            TBasicKeyGenerator.create()
+        );
+
+        taskArr[3].name := 'sqlite';
+        taskArr[3].task := TCreateDbSessionJsonAppConfigsTask.create(
+            textFileCreator,
+            TSqliteDbSessionContentModifier.create(contentModifier),
+            TBasicKeyGenerator.create()
+        );
+
+        result := TCompositeDbTypeTask.create(taskArr);
+    end;
+
+    function TCreateProjectDependenciesTaskFactory.buildSessionConfigProjectTask(
+        const textFileCreator : ITextFileCreator;
+        const contentModifier : IContentModifier
+    ) : ITask;
+    var jsonCfgTask : ITask;
+        iniCfgTask : ITask;
+    begin
+        //setup JSON format config
+        jsonCfgTask := TWithDbSessionTask.create(
+            //this is for --with-session=db
+            buildDbConfig(textFileCreator, contentModifier),
+            TCreateSessionJsonAppConfigsTask.create(
+                textFileCreator,
+                contentModifier,
+                TBasicKeyGenerator.create()
+            )
+        );
+
+        //setup INI format config
+        iniCfgTask := TWithDbSessionTask.create(
+            //this is for --with-session=db
+            TCreateDbSessionIniAppConfigsTask.create(
+                textFileCreator,
+                contentModifier,
+                TBasicKeyGenerator.create()
+            ),
+            TCreateSessionIniAppConfigsTask.create(
+                textFileCreator,
+                contentModifier,
+                TBasicKeyGenerator.create()
+            )
+        );
+
+        //force --config always set if --with-session is set
+        result := TForceConfigDecoratorTask.create(
+            TCreateSessionAppConfigsTask.create(jsonCfgTask, iniCfgTask)
+        );
     end;
 
     function TCreateProjectDependenciesTaskFactory.buildSessionProjectTask(
@@ -144,21 +250,8 @@ uses
         result := TGroupTask.create([
             buildCompilerConfigsTask(textFileCreator, contentModifier),
             TCompositeSessionTask.create(
-                //force --config always set if --with-session is set
-                TForceConfigDecoratorTask.create(
-                    TCreateSessionAppConfigsTask.create(
-                        TCreateSessionJsonAppConfigsTask.create(
-                            textFileCreator,
-                            contentModifier,
-                            TBasicKeyGenerator.create()
-                        ),
-                        TCreateSessionIniAppConfigsTask.create(
-                            textFileCreator,
-                            contentModifier,
-                            TBasicKeyGenerator.create()
-                        )
-                    )
-                ),
+                //build config when --with-session is set
+                buildSessionConfigProjectTask(textFileCreator, contentModifier),
                 TCreateAppConfigsTask.create(textFileCreator, contentModifier)
             ),
             TCompositeSessionTask.create(
@@ -217,15 +310,41 @@ uses
         ]);
     end;
 
+    function TCreateProjectDependenciesTaskFactory.buildWithCsrfProjectTask(
+        const prjTask : ITask;
+        const textFileCreator : ITextFileCreator;
+        const contentModifier : IContentModifier
+    ) : ITask;
+    begin
+        result := TWithCsrfTask.create(
+            //if --with-csrf parameter is set, force add --config and --with-session
+            TForceConfigSessionDecoratorTask.create(
+                TGroupTask.create([
+                    prjTask,
+                    TCreateCsrfMiddlewareDependenciesTask.create(
+                        textFileCreator,
+                        contentModifier,
+                        TFileHelperAppender.create()
+                    )
+                ])
+            ),
+            prjTask
+        );
+    end;
+
     function TCreateProjectDependenciesTaskFactory.buildProjectTask(
         const textFileCreator : ITextFileCreator;
         const contentModifier : IContentModifier
     ) : ITask;
     begin
-        result := TWithSessionOrMiddlewareTask.create(
-            buildSessionProjectTask(textFileCreator, contentModifier),
-            buildMiddlewareProjectTask(textFileCreator, contentModifier),
-            buildBasicProjectTask(textFileCreator, contentModifier)
+        result := buildWithCsrfProjectTask(
+            TWithSessionOrMiddlewareTask.create(
+                buildSessionProjectTask(textFileCreator, contentModifier),
+                buildMiddlewareProjectTask(textFileCreator, contentModifier),
+                buildBasicProjectTask(textFileCreator, contentModifier)
+            ),
+            textFileCreator,
+            contentModifier
         );
     end;
 

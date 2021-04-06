@@ -5,7 +5,7 @@
  * @copyright Copyright (c) 2018 - 2020 Zamrony P. Juhara
  * @license   https://github.com/fanoframework/fano-cli/blob/master/LICENSE (MIT)
  *------------------------------------------------------------- *)
-unit WithSkipEtcHostTaskImpl;
+unit WithDbSessionTaskImpl;
 
 interface
 
@@ -21,13 +21,12 @@ uses
 type
 
     (*!--------------------------------------
-     * Task that run first task if --skip-etc-hosts
-     * parameter to skip domain entry creation
-     * in /etc/hosts or second task if default behavior
-     *----------------------------------------
+     * Task that execute first task if --with-session=db
+     * is set, otherwise run second task
+     *---------------------------------------------
      * @author Zamrony P. Juhara <zamronypj@yahoo.com>
      *---------------------------------------*)
-    TWithSkipEtcHostTask = class(TConditionalCompositeTask)
+    TWithDbSessionTask = class(TConditionalCompositeTask)
     protected
         function condition(
             const opt : ITaskOptions;
@@ -37,15 +36,11 @@ type
 
 implementation
 
-uses
-
-    sysutils;
-
-    function TWithSkipEtcHostTask.condition(
+    function TWithDbSessionTask.condition(
         const opt : ITaskOptions;
         const longOpt : shortstring
     ) : boolean;
     begin
-        result := opt.hasOption('skip-etc-hosts');
+        result := lowercase(opt.getOptionValue('with-session')) = 'db';
     end;
 end.

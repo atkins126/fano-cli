@@ -5,7 +5,7 @@
  * @copyright Copyright (c) 2018 - 2020 Zamrony P. Juhara
  * @license   https://github.com/fanoframework/fano-cli/blob/master/LICENSE (MIT)
  *------------------------------------------------------------- *)
-unit WithSkipEtcHostTaskImpl;
+unit CreateDbSessionIniAppConfigsTaskImpl;
 
 interface
 
@@ -16,23 +16,21 @@ uses
 
     TaskOptionsIntf,
     TaskIntf,
-    ConditionalCompositeTaskImpl;
+    ContentModifierIntf,
+    KeyGeneratorIntf,
+    CreateSessionIniAppConfigsTaskImpl;
 
 type
 
     (*!--------------------------------------
-     * Task that run first task if --skip-etc-hosts
-     * parameter to skip domain entry creation
-     * in /etc/hosts or second task if default behavior
-     *----------------------------------------
+     * Task that create web application json config files
+     * using fano web framework
+     *
      * @author Zamrony P. Juhara <zamronypj@yahoo.com>
      *---------------------------------------*)
-    TWithSkipEtcHostTask = class(TConditionalCompositeTask)
+    TCreateDbSessionIniAppConfigsTask = class(TCreateSessionIniAppConfigsTask)
     protected
-        function condition(
-            const opt : ITaskOptions;
-            const longOpt : shortstring
-        ) : boolean; override;
+        function getConfigTemplate() : string; override;
     end;
 
 implementation
@@ -41,11 +39,11 @@ uses
 
     sysutils;
 
-    function TWithSkipEtcHostTask.condition(
-        const opt : ITaskOptions;
-        const longOpt : shortstring
-    ) : boolean;
+    function TCreateDbSessionIniAppConfigsTask.getConfigTemplate() : string;
+    var
+        {$INCLUDE src/Tasks/Implementations/Session/Includes/config.ini.db.inc}
     begin
-        result := opt.hasOption('skip-etc-hosts');
+        result := strConfigIniDb;
     end;
+
 end.
